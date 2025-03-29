@@ -1,101 +1,75 @@
-import asyncio
-import sys
-import ctypes
-import threading
-import pystray
-from pystray import MenuItem as item
-from PIL import Image
-from pyppeteer import launch
-from pyppeteer.errors import PageError
-from twitchio.ext import commands
+import os
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
+CHROMEDRIVER_PATH = './chromedriver/chromedriver.exe'
 
-# By: Yuuri_dev
+chrome_options = Options()
+chrome_options.add_argument('--headless')
+chrome_options.add_argument('--no-sandbox')
+chrome_options.add_argument('--disable-gpu')
+chrome_options.add_argument('--disable-dev-shm-usage')
+chrome_options.add_argument('--disable-logging')  # Desativa os logs
+chrome_options.add_argument('--log-level=3')  # Minimiza os logs para erros
+chrome_options.add_argument('--remote-debugging-port=0')
+chrome_options.add_experimental_option('useAutomationExtension', False)
+chrome_options.add_argument('--disable-blink-features=AutomationControlled')
+chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+chrome_options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36')
 
-# Função para executar o script de scraping
-async def run_script(nick_to_search):
-    # Configurar o navegador e a página
-    browser = await launch(headless=True)
-    page = await browser.newPage()
-    await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+service = Service(CHROMEDRIVER_PATH)
+
+def get_browser():
+    try:
+        return webdriver.Chrome(service=service, options=chrome_options)
+    except Exception as e:
+        print(f"Erro ao inicializar o navegador: {str(e)}")
+        return None
+
+def run_script(nick_to_search):
+    browser = get_browser()
+    if not browser: return "Não foi possível iniciar o navegador"
 
     try:
-        # Acessar a página inicial
-        await page.goto("https://br.crossfire.z8games.com/competitiveranking.html", {"waitUntil": "networkidle0"})
-
-        # Inserir o nick na barra de pesquisa
-        await page.type("#desk_search_text", nick_to_search)
-        await page.keyboard.press("Enter")
+        browser.get("https://br.crossfire.z8games.com/competitiveranking.html")
         
-        # Esperar pelos resultados da pesquisa
-        await page.waitForXPath("//ul[@class='cfr-rank col-4b']", {"timeout": 10000})
+        search_box = WebDriverWait(browser, 20).until(
+            EC.visibility_of_element_located((By.ID, "desk_search_text"))
+        )
         
-        # Encontrar o elemento que contém o nick desejado na tabela de resultados
-        result_elements = await page.xpath(f"//ul[@class='cfr-rank col-4b']//li[@class='cfr-rank-name']/a[contains(text(), '{nick_to_search}')]")
+        search_box.send_keys(nick_to_search)
+        search_box.submit()
+
+        WebDriverWait(browser, 20).until(
+            EC.presence_of_element_located((By.XPATH, "//ul[@class='cfr-rank col-4b']"))
+        )
+
+        result_elements = browser.find_elements(By.XPATH, f"//ul[@class='cfr-rank col-4b']//li[@class='cfr-rank-name']/a[contains(text(), '{nick_to_search}')]")
         
-        if result_elements:
-            profile_link_handle = await result_elements[0].getProperty("href")
-            profile_link = await profile_link_handle.jsonValue()
+        if not result_elements: return "Erro: Jogador não encontrado"
 
-            # Acessar a página de perfil
-            await page.goto(profile_link, {"waitUntil": "networkidle0"})
-            await page.waitForXPath("(//div[@class='pastseason_tierText__3j7pS'])[4]", {"timeout": 10000})
-            
-            # Extrair o rank
-            rank_elements = await page.xpath("(//div[@class='pastseason_tierText__3j7pS'])[4]")
-            if rank_elements:
-                h5_text = await page.evaluate('(element) => element.querySelector("h5").innerText', rank_elements[0])
-                h3_text = await page.evaluate('(element) => element.querySelector("h3").innerText', rank_elements[0])
+        profile_link = result_elements[0].get_attribute("href")
+        browser.get(profile_link)
+        
+        rank_element = WebDriverWait(browser, 20).until(
+            EC.visibility_of_element_located((By.XPATH, "(//div[@class='pastseason_tierText__3j7pS'])[8]"))
+        )
+        
+        h5_text = rank_element.find_element(By.TAG_NAME, "h5").text
+        h3_text = rank_element.find_element(By.TAG_NAME, "h3").text
 
-                result = f'\nRANK: {h5_text} - {h3_text}'
-                return result
-            else:
-                return "Erro: Elemento de rank não encontrado"
-        else:
-            return "Erro: Jogador não encontrado"
+        return f'\nRANK: {h5_text} - TOP: {h3_text.replace("#", "")}'
 
-    except PageError as e:
-        return f"Erro ao carregar a página: {e}"
-
+    except Exception as e:
+        return f"Erro ao executar o script: {str(e)}"
     finally:
-        await browser.close()
-
-# Bot
-class Bot(commands.Bot):
-    def __init__(self, loop=None):
-        self.loop = loop or asyncio.get_event_loop()
-        super().__init__(token='TOKEN', client_id='FXS', nick='rank', prefix='!', initial_channels=['yuuri_dev', 'zaipzin'], loop=self.loop)
-
-    async def event_ready(self):
-        print(f'\nOnline | {self.nick}\n')
-
-    @commands.command(name='rank')
-    async def elorank(self, ctx, *args):
-        if not args:
-            await ctx.send('Por favor, forneça o nome do jogador após o comando. Exemplo: !rank jogador1')
-        else:
-            nick_to_search = ' '.join(args)
-            result = await run_script(nick_to_search)
-            await ctx.send(result)
-
-def on_quit(icon, item):
-    icon.stop()
-    sys.exit(0)
-
-def run_bot(loop):
-    bot = Bot(loop=loop)
-    bot.run()
-
-# Ícone do sistema
-def setup_icon():
-    image = Image.open("assets/k.png")
-    menu = (item('Sair', on_quit),)
-    icon = pystray.Icon("name", image, "ZAIP BOT", menu)
-    icon.run()
+        browser.quit() if browser else None
 
 if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
-    threading.Thread(target=setup_icon).start()
-    loop.create_task(run_bot(loop))
-    ctypes.windll.user32.ShowWindow(ctypes.windll.kernel32.GetConsoleWindow(), 0)
-    loop.run_forever()
+    nick = input("Digite o nickname do jogador: ")
+    result = run_script(nick)
+    print(result)
