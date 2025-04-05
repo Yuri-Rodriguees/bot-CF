@@ -56,7 +56,7 @@ def run_script(nick_to_search):
         browser.get(profile_link)
         
         rank_element = WebDriverWait(browser, 20).until(
-            EC.visibility_of_element_located((By.XPATH, "(//div[@class='pastseason_tierText__3j7pS'])[8]"))
+            EC.visibility_of_element_located((By.XPATH, "(//div[@class='pastseason_tierText__3j7pS'])[4]"))
         )
         
         h5_text = rank_element.find_element(By.TAG_NAME, "h5").text
