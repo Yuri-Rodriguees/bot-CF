@@ -69,7 +69,7 @@ class Bot(commands.Bot):
             client_id='7bfw2re4ipw0ing4grpodex1novufz',
             nick='yuri_de_saogonsalo',
             prefix='!',
-            initial_channels=['yuri_de_saogonsalo']
+            initial_channels=['yuri_de_saogonsalo', 'paozin9']
         )
 
     async def event_ready(self):

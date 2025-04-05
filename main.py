@@ -1,75 +1,106 @@
-import os
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
+import asyncio
+import requests
+from twitchAPI.twitch import Twitch
+from twitchAPI.oauth import UserAuthenticator
+from twitchAPI.type import AuthScope
+from twitchAPI.chat import Chat, EventData, ChatMessage, ChatEvent
 
-CHROMEDRIVER_PATH = './chromedriver/chromedriver.exe'
+# ===== CONSULTA DE RANK DO CF =====
+def consultar_rank_cf(nickname):
+    if not nickname:
+        return "❌ Nickname não fornecido."
 
-chrome_options = Options()
-chrome_options.add_argument('--headless')
-chrome_options.add_argument('--no-sandbox')
-chrome_options.add_argument('--disable-gpu')
-chrome_options.add_argument('--disable-dev-shm-usage')
-chrome_options.add_argument('--disable-logging')  # Desativa os logs
-chrome_options.add_argument('--log-level=3')  # Minimiza os logs para erros
-chrome_options.add_argument('--remote-debugging-port=0')
-chrome_options.add_experimental_option('useAutomationExtension', False)
-chrome_options.add_argument('--disable-blink-features=AutomationControlled')
-chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-chrome_options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36')
+    url = "https://br.crossfire.z8games.com/rest/eloranking.json"
+    params = {
+        "startrow": 0,
+        "endrow": 30,
+        "name": nickname,
+        "rankType": "user",
+        "period": "all"
+    }
 
-service = Service(CHROMEDRIVER_PATH)
+    headers = {
+        "accept": "*/*",
+        "accept-language": "pt-BR,pt;q=0.9,en;q=0.8,es;q=0.7",
+        "cache-control": "no-cache",
+        "dnt": "1",
+        "pragma": "no-cache",
+        "priority": "u=1, i",
+        "referer": "https://br.crossfire.z8games.com/competitiveranking.html",
+        "sec-ch-ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"Windows"',
+        "sec-fetch-dest": "empty",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "same-origin",
+        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "x-requested-with": "XMLHttpRequest"
+    }
 
-def get_browser():
+    cookies = {
+        "dontaskregion": "1"
+    }
+
+
     try:
-        return webdriver.Chrome(service=service, options=chrome_options)
-    except Exception as e:
-        print(f"Erro ao inicializar o navegador: {str(e)}")
-        return None
+        response = requests.get(url, headers=headers, cookies=cookies, params=params, timeout=10)
+        if response.status_code == 200:
+            dados = response.json()
+            resultados = dados.get("ds_WEB_USER_ALLTIME_TM_Result")
+            if resultados and len(resultados) > 0:
+                jogador = resultados[0]
+                ign = jogador.get("ign")
+                patente = jogador.get("tier_group_name")
+                pts = jogador.get("rank_score")
+                rank = jogador.get("rank")
+                wins = jogador.get("win_cnt")
+                losses = jogador.get("lose_cnt")
+                kd = jogador.get("kd")
+                winrate = jogador.get("vit")
 
-def run_script(nick_to_search):
-    browser = get_browser()
-    if not browser: return "Não foi possível iniciar o navegador"
+                return (f"📛 Nick: {ign} | 🏅 {patente} ({pts} pts) | 🔢 Rank: {rank}º | "
+                        f"📈 Win Rate: {winrate} | ⚔️ K/D: {kd} | ✅ V: {wins} ❌ D: {losses}")
+            else:
+                return "❌ Jogador não encontrado ou sem ranking."
+        else:
+            return f"❌ Erro {response.status_code}: Não foi possível obter os dados."
+    except requests.RequestException as e:
+        return f"⚠️ Erro de conexão: {e}"
+
+# ===== FUNÇÃO PRINCIPAL =====
+async def main():
+    client_id = 'hb9f5h5mjj1n0fcbv7rpirlo456io5'
+    client_secret = 'k4geg3d23byw6alzpark9wns801dky'
+    bot_nick = 'bot_cfal'
+
+    canais = ['yuri_de_saogonsalo', 'paozin9']
 
     try:
-        browser.get("https://br.crossfire.z8games.com/competitiveranking.html")
-        
-        search_box = WebDriverWait(browser, 20).until(
-            EC.visibility_of_element_located((By.ID, "desk_search_text"))
-        )
-        
-        search_box.send_keys(nick_to_search)
-        search_box.submit()
+        twitch = await Twitch(client_id, client_secret)
+        auth = UserAuthenticator(twitch, [AuthScope.CHAT_READ, AuthScope.CHAT_EDIT])
+        token, refresh_token = await auth.authenticate()
+        await twitch.set_user_authentication(token, [AuthScope.CHAT_READ, AuthScope.CHAT_EDIT], refresh_token)
 
-        WebDriverWait(browser, 20).until(
-            EC.presence_of_element_located((By.XPATH, "//ul[@class='cfr-rank col-4b']"))
-        )
+        chat = await Chat(twitch)
 
-        result_elements = browser.find_elements(By.XPATH, f"//ul[@class='cfr-rank col-4b']//li[@class='cfr-rank-name']/a[contains(text(), '{nick_to_search}')]")
-        
-        if not result_elements: return "Erro: Jogador não encontrado"
+        async def on_ready(evt: EventData):
+            for canal in canais:
+                await chat.join_room(canal)
+                print(f"✅ Bot entrou em #{canal} como {bot_nick}")
 
-        profile_link = result_elements[0].get_attribute("href")
-        browser.get(profile_link)
-        
-        rank_element = WebDriverWait(browser, 20).until(
-            EC.visibility_of_element_located((By.XPATH, "(//div[@class='pastseason_tierText__3j7pS'])[4]"))
-        )
-        
-        h5_text = rank_element.find_element(By.TAG_NAME, "h5").text
-        h3_text = rank_element.find_element(By.TAG_NAME, "h3").text
+        async def on_message(msg: ChatMessage):
+            if msg.text.startswith("!rank "):
+                nickname = msg.text.split("!rank ", 1)[1].strip()
+                resultado = consultar_rank_cf(nickname)
+                await chat.send_message(msg.room.name, resultado[:450])
 
-        return f'\nRANK: {h5_text} - TOP: {h3_text.replace("#", "")}'
+        chat.register_event(ChatEvent.READY, on_ready)
+        chat.register_event(ChatEvent.MESSAGE, on_message)
+
+        chat.start()
 
     except Exception as e:
-        return f"Erro ao executar o script: {str(e)}"
-    finally:
-        browser.quit() if browser else None
+        print(f"❌ Ocorreu um erro: {e}")
 
 if __name__ == "__main__":
-    nick = input("Digite o nickname do jogador: ")
-    result = run_script(nick)
-    print(result)
+    asyncio.run(main())
