@@ -41,9 +41,8 @@ def consultar_rank_cf(nickname):
         if resultados and len(resultados) > 0:
             jogador = resultados[0]
             print(f"📇 Nome: {jogador.get('ign')}")
-            print(f"🏅 Rank: {jogador.get('tier_group_name')}")
-            print(f" TOP RANK: {jogador.get('rank')}")
-            print(f"⭐ Pontos: {jogador.get('rank_score')}")
+            print(f"🏅 Rank: {jogador.get('tier_group_name')} - Pontos: {jogador.get('rank_score')}")
+            print(f"🔝 TOP RANK: {jogador.get('rank')}°")
             print(f"📊 Win: {jogador.get('win_cnt')} - ❌ Derrotas: {jogador.get('lose_cnt')}")
             print(f"⚔️ K/D: {jogador.get('kd')}")
             print(f"📈 Win Rate: {jogador.get('vit')}")
