@@ -1,11 +1,7 @@
 import asyncio
 import requests
-from twitchAPI.twitch import Twitch
-from twitchAPI.oauth import UserAuthenticator
-from twitchAPI.type import AuthScope
-from twitchAPI.chat import Chat, EventData, ChatMessage, ChatEvent
+from twitchio.ext import commands
 
-# ===== CONSULTA DE RANK DO CF =====
 def consultar_rank_cf(nickname):
     if not nickname:
         return "❌ Nickname não fornecido."
@@ -41,7 +37,6 @@ def consultar_rank_cf(nickname):
         "dontaskregion": "1"
     }
 
-
     try:
         response = requests.get(url, headers=headers, cookies=cookies, params=params, timeout=10)
         if response.status_code == 200:
@@ -67,40 +62,38 @@ def consultar_rank_cf(nickname):
     except requests.RequestException as e:
         return f"⚠️ Erro de conexão: {e}"
 
-# ===== FUNÇÃO PRINCIPAL =====
-async def main():
-    client_id = 'hb9f5h5mjj1n0fcbv7rpirlo456io5'
-    client_secret = 'k4geg3d23byw6alzpark9wns801dky'
-    bot_nick = 'bot_cfal'
+class Bot(commands.Bot):
+    def __init__(self):
+        # Store channels separately since we can't access initial_channels later
+        self.target_channels = ['yuri_de_saogonsalo', 'paozin9', 'kiweyfps', 'v1nniofc']
+        super().__init__(
+            token='d7q8nrmgmpmyp8nq4ei9xh5rvg97un',
+            client_id='gp762nuuoqcoxypju8c569th9wz7q5',
+            nick='cfal_rank',
+            prefix='!',
+            initial_channels=self.target_channels
+        )
 
-    canais = ['yuri_de_saogonsalo', 'paozin9']
+    async def event_ready(self):
+        print(f'✅ Bot conectado como {self.nick}')
+        print(f'✅ Conectado aos canais: {", ".join(self.target_channels)}')
 
-    try:
-        twitch = await Twitch(client_id, client_secret)
-        auth = UserAuthenticator(twitch, [AuthScope.CHAT_READ, AuthScope.CHAT_EDIT])
-        token, refresh_token = await auth.authenticate()
-        await twitch.set_user_authentication(token, [AuthScope.CHAT_READ, AuthScope.CHAT_EDIT], refresh_token)
+    async def event_message(self, message):
+        if message.echo:
+            return
 
-        chat = await Chat(twitch)
+        print(f'Mensagem recebida de {message.author.name}: {message.content}')
+        await self.handle_commands(message)
 
-        async def on_ready(evt: EventData):
-            for canal in canais:
-                await chat.join_room(canal)
-                print(f"✅ Bot entrou em #{canal} como {bot_nick}")
+    @commands.command(name='rank')
+    async def rank_command(self, ctx, *, nickname: str = None):
+        if not nickname:
+            await ctx.send("❌ Por favor, forneça um nickname após o comando !rank")
+            return
 
-        async def on_message(msg: ChatMessage):
-            if msg.text.startswith("!rank "):
-                nickname = msg.text.split("!rank ", 1)[1].strip()
-                resultado = consultar_rank_cf(nickname)
-                await chat.send_message(msg.room.name, resultado[:450])
-
-        chat.register_event(ChatEvent.READY, on_ready)
-        chat.register_event(ChatEvent.MESSAGE, on_message)
-
-        chat.start()
-
-    except Exception as e:
-        print(f"❌ Ocorreu um erro: {e}")
+        resultado = consultar_rank_cf(nickname)
+        await ctx.send(resultado[:450])
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    bot = Bot()
+    bot.run()
